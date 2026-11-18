@@ -127,7 +127,6 @@ canarygate/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py
-│   ├── config.py
 │   ├── ai_client.py
 │   ├── gateway.py
 │   │
