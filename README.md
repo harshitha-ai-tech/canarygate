@@ -1,107 +1,77 @@
-
 # Canary Gate
+
 ### A Tested Two-Way AI Firewall That Hides Private Data, Blocks Prompt Injection, and Catches Leaks
 
-Canary Gate is a lightweight AI security gateway built with Python and FastAPI. It protects both sides of an AI interaction:
+Canary Gate is a Python-based AI security gateway designed to add a security layer between users and a generative AI model.
 
-- **Before AI processing:** Detects and redacts supported personally identifiable information (PII), identifies suspicious prompt injection patterns, and applies security policies.
-- **After AI processing:** Scans AI-generated responses for supported PII, credentials, internal instruction markers, and canary token leaks.
-
-The gateway uses the Gemini API for AI response generation.
+It checks incoming prompts before they reach the AI model and scans generated responses before returning them to users.
 
 ## Key Features
 
-### 1. PII Detection and Redaction
-- Detects email addresses.
-- Detects supported Indian mobile number formats.
-- Detects Aadhaar-like number patterns.
-- Checks card-like numbers using the Luhn checksum.
-- Redacts detected values before sending prompts to Gemini.
-
-### 2. Prompt Injection Detection
-- Detects common instruction override attempts.
-- Identifies system prompt extraction patterns.
-- Checks for jailbreak and role manipulation patterns.
-- Calculates a heuristic risk score.
-- Classifies requests as ALLOW, WARN, or BLOCK.
-
-### 3. Security Policy Engine
-- Combines PII and injection detection results.
-- Blocks high-risk requests before model invocation.
-- Allows or warns on requests according to configured rules.
-- Ensures PII is redacted before model processing.
-
-### 4. AI Output Scanner
-- Scans generated responses for supported PII.
-- Detects selected API-key and credential patterns.
-- Identifies internal instruction markers.
-- Redacts detected sensitive content before returning the response.
-
-### 5. Canary Token Detection
-- Generates a unique unpredictable token for each request.
-- Checks AI output for the token.
-- Blocks responses when a canary token leak is detected.
-
-### 6. Sanitized Security Audit Logging
-- Records request IDs and timestamps.
-- Stores security actions and risk scores.
-- Records detection categories and canary leak status.
-- Does not intentionally store prompts, AI responses, PII values, API keys, or canary token values.
-
-### 7. Automated Testing
-- Uses pytest for automated tests.
-- Uses mocked Gemini responses for gateway and API testing.
-- Tests detection, redaction, blocking, output scanning, and audit logging.
+- **PII Detection and Redaction:** Detects and masks email addresses, Indian phone numbers, Aadhaar-like numbers, and payment-card-like numbers.
+- **Prompt Injection Detection:** Uses rule-based detection to identify suspicious instructions and potential prompt injection attempts.
+- **Risk Scoring and Policy Engine:** Classifies requests into ALLOW, WARN, or BLOCK decisions.
+- **Secure AI Integration:** Sends permitted, sanitized prompts to the Gemini API.
+- **Output Security Scanning:** Checks AI-generated responses for sensitive information, credentials, and internal instruction markers.
+- **Canary Token Detection:** Uses a unique canary token to detect exact-token leaks in AI responses.
+- **Security Audit Logging:** Records security metadata in JSONL format without storing original prompts, responses, or detected secret values.
+- **Automated Testing:** Uses pytest and mocked AI responses to test security components without unnecessary API calls.
 
 ## Architecture
 
 ```text
-             USER PROMPT
-                  |
-                  v
-          PII DETECTION
-                  |
-           PII REDACTION
-                  |
-                  v
-       PROMPT INJECTION DETECTOR
-                  |
-                  v
-           POLICY ENGINE
-                  |
-           +------+------+
-           |             |
-         BLOCK         ALLOW/WARN
-           |             |
-           v             v
-        REJECT       CANARY TOKEN
-                         |
-                         v
-                  GEMINI API
-                         |
-                         v
-                   AI RESPONSE
-                         |
-                         v
-                  OUTPUT SCANNER
-                         |
-                         v
-                  CANARY CHECK
-                         |
-                 +-------+-------+
-                 |               |
-               LEAK           NO LEAK
-                 |               |
-                 v               v
-               BLOCK       SANITIZED OUTPUT
-                                 |
-                                 v
-                                USER
+                USER PROMPT
+                     |
+                     v
+           +-------------------+
+           |   PII DETECTION    |
+           |   AND REDACTION   |
+           +-------------------+
+                     |
+                     v
+           +-------------------+
+           | PROMPT INJECTION  |
+           |    DETECTION      |
+           +-------------------+
+                     |
+                     v
+           +-------------------+
+           |   POLICY ENGINE   |
+           | ALLOW / WARN /    |
+           |      BLOCK        |
+           +-------------------+
+                     |
+              BLOCK? | 
+               YES   |   NO
+                |    v
+                |  +----------------+
+                |  |  CANARY TOKEN  |
+                |  |   GENERATION   |
+                |  +----------------+
+                |          |
+                |          v
+                |  +----------------+
+                |  |  GEMINI API    |
+                |  +----------------+
+                |          |
+                |          v
+                |  +----------------+
+                |  | OUTPUT SCANNER |
+                |  +----------------+
+                |          |
+                |          v
+                |  +----------------+
+                |  | CANARY LEAK    |
+                |  |   DETECTION    |
+                |  +----------------+
+                |          |
+                v          v
+             BLOCK     SECURE RESPONSE
+                           |
+                           v
+                       USER
 
-          SECURITY DECISIONS
-                  |
-                  v
-             AUDIT LOGGER
+             SECURITY AUDIT LOGGING
 ```
 
 ## Technology Stack
@@ -110,12 +80,11 @@ The gateway uses the Gemini API for AI response generation.
 |---|---|
 | Programming language | Python |
 | API framework | FastAPI |
-| AI model API | Google Gemini API |
-| PII detection | Python Regular Expressions |
-| Injection detection | Rule-based pattern matching |
-| Secret scanning | Python Regular Expressions |
-| Canary tokens | Python secrets module |
-| Audit logging | JSON Lines |
+| AI model | Google Gemini |
+| AI SDK | google-genai |
+| Input security | Python regex and validation |
+| Output security | Rule-based scanning |
+| Audit logging | JSONL |
 | Testing | pytest |
 | API documentation | Swagger UI |
 
@@ -123,13 +92,11 @@ The gateway uses the Gemini API for AI response generation.
 
 ```text
 canarygate/
-|
 ├── app/
 │   ├── __init__.py
 │   ├── main.py
 │   ├── ai_client.py
 │   ├── gateway.py
-│   │
 │   └── security/
 │       ├── __init__.py
 │       ├── pii_detector.py
@@ -168,20 +135,17 @@ cd canarygate
 
 ### 2. Create a virtual environment
 
-```bash
-python -m venv venv
-```
-
-Activate it on Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
+python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
 ### 3. Install dependencies
 
 ```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ### 4. Configure environment variables
@@ -193,25 +157,26 @@ GEMINI_API_KEY=your_gemini_api_key
 GEMINI_MODEL=gemini-3.8-flash
 ```
 
-Never commit your actual `.env` file or API key.
+Obtain an API key from Google AI Studio.
 
-### 5. Run the application
+Never upload your actual `.env` file or API key to GitHub.
+
+### 5. Start the application
 
 ```bash
-python -m uvicorn app.main:app --reload
+uvicorn app.main:app --reload
 ```
-
-Open the API documentation:
-
-http://127.0.0.1:8000/docs
-
-Health check:
-
-http://127.0.0.1:8000/health
 
 ## API Usage
 
-### POST /chat
+Once the application is running, open:
+
+- Swagger UI: `http://127.0.0.1:8000/docs`
+- Health endpoint: `http://127.0.0.1:8000/health`
+
+### Chat endpoint
+
+**POST** `/chat`
 
 Example request:
 
@@ -221,57 +186,39 @@ Example request:
 }
 ```
 
-Example response:
+The API processes the prompt through the security gateway and returns the security decision, risk score, response, and relevant detection information.
 
-```json
-{
-  "action": "ALLOW",
-  "risk_score": 0,
-  "response": "Artificial intelligence enables machines to perform tasks that typically require human intelligence.",
-  "reasons": [
-    "No significant security risks detected."
-  ],
-  "output_detections": {},
-  "canary_leak_detected": false
-}
-```
+## Testing
 
-The response above is an illustrative example.
-
-## Running Tests
-
-Run the complete automated test suite:
+Run the automated test suite:
 
 ```bash
-python -m pytest -v
+pytest -v
 ```
 
-Current development result: **83 automated tests passed**.
+**Previously recorded test result: 83 passed.**
 
-The automated suite uses mocked Gemini responses where appropriate. A successful live Gemini API request was also tested separately.
+The test suite includes mocked AI interactions to validate application behavior without consuming Gemini API quota.
 
 ## Security Design and Limitations
 
-Canary Gate is a lightweight prototype and demonstration of layered AI security controls.
+Canary Gate is a proof-of-concept security gateway, not a complete security guarantee.
 
-Important limitations:
-
-- Pattern-based detection cannot identify every possible prompt injection.
-- PII patterns may produce false positives or miss unusual formats.
-- Aadhaar-like detection checks formatting, not authenticity.
-- The Luhn checksum does not establish whether a payment card is active or genuine.
-- Canary token detection identifies exact token occurrences; it is not a complete data-loss prevention system.
-- Audit logging is metadata-focused but still requires access control, retention policies, and operational monitoring.
-- The gateway does not guarantee complete protection against all AI security attacks.
+- PII detection uses pattern matching and validation rules; false positives and false negatives are possible.
+- Aadhaar-like detection checks number patterns, not official Aadhaar validity.
+- Card-like detection uses checksum validation, not verification of an active payment card.
+- Prompt injection detection is heuristic and cannot identify every attack.
+- Output scanning uses defined patterns and cannot guarantee detection of every possible secret.
+- Canary detection identifies exact token matches and does not detect every form of indirect information leakage.
+- The canary token is included in the model context for leak-detection testing.
 
 ## Future Improvements
 
-- Broader prompt injection evaluation.
-- Improved detection against obfuscated inputs.
-- More comprehensive secret detection.
-- Configurable security policies.
-- Audit log integrity and retention controls.
-- Expanded security benchmarks and evaluation reports.
+- More comprehensive prompt injection detection.
+- Advanced PII recognition.
+- Improved secret and sensitive-output detection.
+- Expanded security evaluation with additional attack scenarios.
+- More detailed security metrics and reporting.
 
 ## Author
 
@@ -279,6 +226,4 @@ Important limitations:
 
 GitHub: https://github.com/harshitha-ai-tech
 
-## Project
-
-**Canary Gate — A Tested Two-Way AI Firewall That Hides Private Data, Blocks Prompt Injection, and Catches Leaks.**
+Project: https://github.com/harshitha-ai-tech/canarygate
