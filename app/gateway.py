@@ -7,16 +7,44 @@ from app.security.canary_detector import (
     generate_canary_token,
     detect_canary_leak,
 )
+from app.security.audit_logger import write_audit_log
 from app.ai_client import generate_ai_response
+
+
+def record_gateway_audit(
+    policy_result: dict,
+    injection_result: dict,
+    output_detections: dict = None,
+    canary_leak_detected: bool = False,
+) -> None:
+    """Record security metadata without storing sensitive content."""
+
+    injection_categories = [
+        item["category"]
+        for item in injection_result.get("detections", [])
+        if isinstance(item, dict) and "category" in item
+    ]
+
+    output_categories = list((output_detections or {}).keys())
+
+    write_audit_log(
+        action=policy_result["action"],
+        risk_score=policy_result["risk_score"],
+        pii_count=policy_result["pii_count"],
+        injection_categories=injection_categories,
+        output_categories=output_categories,
+        canary_leak_detected=canary_leak_detected,
+    )
 
 
 def process_prompt(prompt: str) -> dict:
     """
-    Run a prompt through the complete Canary Gate security pipeline.
+    Process a prompt through the two-way AI security gateway.
 
     BLOCK requests never reach Gemini.
     WARN requests proceed using the redacted prompt.
-    AI output is scanned before it is returned.
+    AI output is scanned before being returned.
+    Every completed decision is recorded in the audit log.
     """
 
     if not isinstance(prompt, str):
@@ -28,13 +56,20 @@ def process_prompt(prompt: str) -> dict:
     # 1. Detect and redact PII.
     pii_result = detect_and_redact(prompt)
 
-    # 2. Detect prompt injection in the original user input.
+    # 2. Detect prompt injection.
     injection_result = detect_prompt_injection(prompt)
 
-    # 3. Evaluate the request using the policy engine.
+    # 3. Evaluate the security policy.
     policy_result = evaluate_prompt(pii_result, injection_result)
 
+    # 4. Block high-risk requests before calling Gemini.
     if policy_result["action"] == "BLOCK":
+
+        record_gateway_audit(
+            policy_result,
+            injection_result,
+        )
+
         return {
             "action": "BLOCK",
             "risk_score": policy_result["risk_score"],
@@ -44,11 +79,10 @@ def process_prompt(prompt: str) -> dict:
             "canary_leak_detected": False,
         }
 
-    # 4. Generate a unique canary token for this request.
+    # 5. Generate a unique canary token.
     canary_token = generate_canary_token()
 
-    # 5. Send only the redacted prompt to Gemini.
-    # The canary marker is included in the model context for leak testing.
+    # 6. Send only the redacted prompt to Gemini.
     model_prompt = (
         "Internal security marker: "
         f"{canary_token}\n"
@@ -59,27 +93,41 @@ def process_prompt(prompt: str) -> dict:
 
     ai_response = generate_ai_response(model_prompt)
 
-    # 6. Scan the AI output for PII and secrets.
+    # 7. Scan AI output for PII and secrets.
     output_result = scan_output(ai_response)
 
-    # 7. Check the scanned output for the canary token.
+    # 8. Check for canary token leakage.
     canary_result = detect_canary_leak(
         output_result["sanitized_text"],
         canary_token,
     )
 
-    # 8. Block responses containing a leaked canary marker.
+    # 9. Block output if the canary token leaked.
     if canary_result["leak_detected"]:
+
+        canary_policy = {
+            **policy_result,
+            "action": "BLOCK",
+    }
+
+        record_gateway_audit(
+            canary_policy,
+            injection_result,
+            output_result["detections"],
+            canary_leak_detected=True,
+    )
         return {
             "action": "BLOCK",
             "risk_score": policy_result["risk_score"],
             "response": None,
-            "reasons": ["Canary token leak detected in AI output."],
+            "reasons": [
+                "Canary token leak detected in AI output."
+            ],
             "output_detections": output_result["detections"],
             "canary_leak_detected": True,
         }
 
-    # 9. Return only sanitized AI output.
+    # 10. Determine the final action.
     final_action = policy_result["action"]
 
     if output_result["has_sensitive_content"]:
@@ -92,6 +140,19 @@ def process_prompt(prompt: str) -> dict:
             "Sensitive content detected and redacted from AI output."
         )
 
+    final_policy = {
+        **policy_result,
+        "action": final_action,
+    }
+
+    # 11. Record the final decision.
+    record_gateway_audit(
+        final_policy,
+        injection_result,
+        output_result["detections"],
+    )
+
+    # 12. Return sanitized output only.
     return {
         "action": final_action,
         "risk_score": policy_result["risk_score"],
